@@ -1,0 +1,35 @@
+/* Mobile-specific styles */
+.mobile-tab-container {
+  touch-action: pan-y;
+}
+
+.mobile-modal {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.mobile-card {
+  border-radius: 1rem;
+}
+
+.mobile-button {
+  min-height: 44px;
+}
+
+.mobile-input {
+  min-height: 44px;
+}
+
+.mobile-header {
+  font-size: 1.125rem;
+}
+
+.mobile-text {
+  font-size: 0.875rem;
+}
+
+@media (max-width: 640px) {
+  .mobile-font-scale {
+    font-size: calc(1rem * var(--font-scale, 1));
+  }
+}
