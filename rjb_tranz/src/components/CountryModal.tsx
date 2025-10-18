@@ -1,14 +1,14 @@
- import React, { useState, useMemo, useRef } from "react";
+ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { 
-  X, 
-  TrendUp, 
-  TrendDown, 
-  Upload, 
+import {
+  X,
+  TrendUp,
+  TrendDown,
+  Upload,
   Download,
   CalendarBlank,
   Clock,
@@ -24,7 +24,8 @@ import {
   Lock,
   ShieldCheck,
   CaretRight,
-  CaretLeft
+  CaretLeft,
+  Printer
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
@@ -44,6 +45,7 @@ interface Transaction {
   transactionType: 'send' | 'receive';
   uniqueId: string;
   formatId: string;
+  uniqueCode: string;
 }
 
 interface ExchangeRate {
@@ -60,11 +62,14 @@ interface CountryInfo {
   currency: string;
   pair: string;
   rate: ExchangeRate;
+  region: string;
 }
 
 interface CountryModalProps {
   country: CountryInfo;
   transactions: Transaction[];
+  exchangeRates: ExchangeRate[];
+  countries: CountryInfo[];
   onClose: () => void;
   onSendMoney: (currency: string) => void;
   onReceiveMoney: (currency: string) => void;
@@ -84,6 +89,8 @@ type ModalStep = 'overview' | 'send' | 'receive' | 'transaction-form' | 'pending
 const CountryModal: React.FC<CountryModalProps> = ({
   country,
   transactions,
+  exchangeRates,
+  countries,
   onClose,
   onSendMoney,
   onReceiveMoney,
@@ -104,20 +111,82 @@ const CountryModal: React.FC<CountryModalProps> = ({
     currency: country.currency,
     phoneNumber: ''
   });
+  const [senderCurrency, setSenderCurrency] = useState<string>('USD');
+  const [receiverCurrency, setReceiverCurrency] = useState<string>('GHS'); // Default to GHS for Ghana
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  
+  // Sync sender and receiver currencies when transaction type changes
+  useEffect(() => {
+    if (transactionType === 'send') {
+      setSenderCurrency('USD');
+      setReceiverCurrency('GHS'); // Default to GHS for Ghana
+    } else {
+      setSenderCurrency('GHS'); // Default to GHS for Ghana
+      setReceiverCurrency('USD');
+    }
+    // Reset fee and D2D toggle when transaction type changes
+    setCustomFee(null);
+    setIsDollarToDollar(false);
+  }, [transactionType]);
+
+  // Check if transaction is Dollar to Dollar
+  useEffect(() => {
+    const d2d = senderCurrency === 'USD' && receiverCurrency === 'USD';
+    setIsDollarToDollar(d2d);
+    // Reset custom fee when currencies change
+    if (!d2d) {
+      setCustomFee(null);
+    }
+  }, [senderCurrency, receiverCurrency]);
   const [receiverInfo, setReceiverInfo] = useState({
     fullName: '',
     email: '',
-    phoneNumber: ''
+    phoneNumber: '',
+    country: '',
+    currency: ''
   });
   const [customExchangeRate, setCustomExchangeRate] = useState<number | null>(null);
+  const [customFee, setCustomFee] = useState<number | null>(null);
+  const [isDollarToDollar, setIsDollarToDollar] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed' | 'failed' | 'cancelled'>('all');
 
   // Utility functions
+  // List of unique currencies from available exchange rates
+  const availableCurrencies = useMemo(() => {
+    const set = new Set<string>();
+    exchangeRates.forEach(r => {
+      const [base, target] = r.pair.split('/');
+      set.add(base);
+      set.add(target);
+    });
+    return Array.from(set).sort();
+  }, [exchangeRates]);
+
+  // Compute exchange rate for any currency pair, with USD cross fallback
+  const getRateForPair = (from: string, to: string): number => {
+    if (from === to) return 1;
+    // direct match
+    const direct = exchangeRates.find(r => r.pair === `${from}/${to}`);
+    if (direct) return direct.rate;
+    // inverse
+    const inverse = exchangeRates.find(r => r.pair === `${to}/${from}`);
+    if (inverse) return 1 / inverse.rate;
+    // cross via USD
+    const fromUsd = exchangeRates.find(r => r.pair === `USD/${from}` || r.pair === `${from}/USD`);
+    const toUsd = exchangeRates.find(r => r.pair === `USD/${to}` || r.pair === `${to}/USD`);
+    if (fromUsd && toUsd) {
+      const f = fromUsd.pair === `USD/${from}` ? fromUsd.rate : 1 / fromUsd.rate;
+      const t = toUsd.pair === `USD/${to}` ? toUsd.rate : 1 / toUsd.rate;
+      return t / f;
+    }
+    // fallback to currently viewed country's rate
+    return country.rate.rate;
+  };
+
   const generateUniqueCode = (): string => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = '';
-    for (let i = 0; i < 7; i++) {
+    let result = 'RJB';
+    for (let i = 0; i < 8; i++) {
       result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return result;
@@ -168,10 +237,7 @@ const CountryModal: React.FC<CountryModalProps> = ({
       toast.error("Valid amount is required");
       return false;
     }
-    if (!formData.phoneNumber.trim()) {
-      toast.error("Phone number is required");
-      return false;
-    }
+    // Phone number is now optional
     return true;
   };
 
@@ -187,22 +253,25 @@ const CountryModal: React.FC<CountryModalProps> = ({
       const uniqueCode = generateUniqueCode();
       const formatId = generateTransactionId(formData.currency, formData.phoneNumber);
       
+      const calculatedFee = customFee !== null ? customFee : (isDollarToDollar ? 0 : parseFloat(formData.amount) * 0.05);
+
       const newTransaction: Transaction = {
         id: `TXN-${Date.now()}`,
         clientName: formData.fullName,
         clientEmail: formData.email || '',
         amount: parseFloat(formData.amount),
-        fromCurrency: transactionType === 'send' ? 'USD' : formData.currency,
-        toCurrency: transactionType === 'send' ? formData.currency : 'USD',
-        exchangeRate: country.rate.rate,
-        fee: parseFloat(formData.amount) * 0.025, // 2.5% fee
+        fromCurrency: senderCurrency,
+        toCurrency: receiverCurrency,
+        exchangeRate: country.rate.rate * 1.05,
+        fee: calculatedFee,
         status: 'pending',
         createdAt: new Date().toISOString(),
         receiptPrinted: false,
         phoneNumber: formData.phoneNumber,
         transactionType: transactionType,
         uniqueId: uniqueCode,
-        formatId: formatId
+        formatId: formatId,
+        uniqueCode: uniqueCode
       };
 
       // Call the callback to add transaction to the main app
@@ -249,22 +318,25 @@ const CountryModal: React.FC<CountryModalProps> = ({
       const uniqueCode = generateUniqueCode();
       const formatId = generateTransactionId(formData.currency, formData.phoneNumber);
       
+      const calculatedFee = customFee !== null ? customFee : (isDollarToDollar ? 0 : parseFloat(formData.amount) * 0.05);
+
       const newTransaction: Transaction = {
         id: `TXN-${Date.now()}`,
         clientName: formData.fullName,
         clientEmail: formData.email || '',
         amount: parseFloat(formData.amount),
-        fromCurrency: transactionType === 'send' ? 'USD' : formData.currency,
-        toCurrency: transactionType === 'send' ? formData.currency : 'USD',
-        exchangeRate: country.rate.rate,
-        fee: parseFloat(formData.amount) * 0.025, // 2.5% fee
+        fromCurrency: senderCurrency,
+        toCurrency: receiverCurrency,
+        exchangeRate: country.rate.rate * 1.05,
+        fee: calculatedFee,
         status: 'pending',
         createdAt: new Date().toISOString(),
         receiptPrinted: false,
         phoneNumber: formData.phoneNumber,
         transactionType: transactionType,
         uniqueId: uniqueCode,
-        formatId: formatId
+        formatId: formatId,
+        uniqueCode: uniqueCode
       };
 
       // Call the callback to add transaction to the main app
@@ -291,7 +363,7 @@ const CountryModal: React.FC<CountryModalProps> = ({
   const handleBackToOverview = () => {
     setCurrentStep('overview');
     setSelectedTransaction(null);
-    setReceiverInfo({ fullName: '', email: '', phoneNumber: '' });
+    setReceiverInfo({ fullName: '', email: '', phoneNumber: '', country: '', currency: '' });
     setStatusFilter('all');
     setFormData({
       fullName: '',
@@ -334,12 +406,9 @@ const CountryModal: React.FC<CountryModalProps> = ({
   };
 
   const calculateReceivingAmount = (transaction: Transaction): number => {
-    // Auto convert to receiving country currency
-    if (transaction.fromCurrency === country.currency) {
-      return transaction.amount;
-    } else {
-      return transaction.amount * country.rate.rate;
-    }
+    const baseRate = getRateForPair(transaction.fromCurrency, transaction.toCurrency);
+    const effectiveRate = baseRate * 1.05; // add 5% markup
+    return transaction.amount * effectiveRate;
   };
 
   // Filter transactions by time, country, and status
@@ -668,12 +737,12 @@ const CountryModal: React.FC<CountryModalProps> = ({
               <div>
                 <span className="text-muted-foreground">Receiving Amount:</span>
                 <div className="font-mono text-green-600 font-bold">
-                  {calculateReceivingAmount(selectedTransaction).toLocaleString()} {country.currency}
+                  {calculateReceivingAmount(selectedTransaction).toLocaleString()} {selectedTransaction.toCurrency}
                 </div>
               </div>
               <div>
                 <span className="text-muted-foreground">Exchange Rate:</span>
-                <div className="font-mono">{country.rate.rate.toFixed(4)}</div>
+                <div className="font-mono">{(getRateForPair(selectedTransaction.fromCurrency, selectedTransaction.toCurrency) * 1.05).toFixed(4)}</div>
               </div>
             </div>
           </div>
@@ -710,14 +779,57 @@ const CountryModal: React.FC<CountryModalProps> = ({
           />
         </div>
 
-        {/* Country - Auto-filled */}
+        {/* Country - Dropdown for selection */}
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">
             Country <span className="text-red-500">*</span>
           </label>
+          <select
+            value={receiverInfo.country}
+            onChange={(e) => {
+              const selectedCountry = e.target.value;
+              setReceiverInfo(prev => ({
+                ...prev,
+                country: selectedCountry,
+                currency: '' // Reset currency when country changes
+              }));
+            }}
+            className="h-12 px-3 border rounded-md bg-muted/50 w-full"
+          >
+            <option value="">Select a country</option>
+            {Array.from(new Set(exchangeRates.map(rate => {
+              const [base, target] = rate.pair.split('/');
+              // Get country info for base currency
+              const baseCountry = countries.find(c => c.currency === base);
+              // Get country info for target currency
+              const targetCountry = countries.find(c => c.currency === target);
+              return [baseCountry, targetCountry].filter(Boolean);
+            }).flat())).filter((countryInfo): countryInfo is CountryInfo => countryInfo !== undefined).map((countryInfo) => (
+              <option key={`country-${countryInfo.currency}`} value={countryInfo.name}>
+                {countryInfo.flag} {countryInfo.name} ({countryInfo.currency})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Currency - Auto-filled based on selected country */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">
+            Currency <span className="text-red-500">*</span>
+          </label>
           <div className="h-12 px-3 border rounded-md bg-muted/50 flex items-center gap-3">
-            <span className="text-2xl">{country.flag}</span>
-            <span className="font-medium">{country.name}</span>
+            {receiverInfo.country ? (
+              <>
+                <span className="text-2xl">
+                  {countries.find(c => c.name === receiverInfo.country)?.flag}
+                </span>
+                <span className="font-medium">
+                  {countries.find(c => c.name === receiverInfo.country)?.currency}
+                </span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">Select a country first</span>
+            )}
           </div>
         </div>
 
@@ -749,6 +861,104 @@ const CountryModal: React.FC<CountryModalProps> = ({
     </CardContent>
   );
 
+  // PDF Generation and Print Functions
+  const generatePDF = async () => {
+    try {
+      // Import html2pdf dynamically
+      const html2pdf = (await import('html2pdf.js')).default;
+
+      const element = document.getElementById('receipt-preview');
+      if (!element) {
+        toast.error("Receipt preview not found");
+        return;
+      }
+
+      const opt = {
+        margin: [0.5, 0.5, 0.5, 0.5] as [number, number, number, number], // top, left, bottom, right in inches
+        filename: `RJB_TRANZ_Receipt_${selectedTransaction?.formatId || 'Unknown'}.pdf`,
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          letterRendering: true
+        },
+        jsPDF: {
+          unit: 'in' as const,
+          format: 'a4' as const,
+          orientation: 'portrait' as const
+        }
+      };
+
+      await html2pdf().set(opt).from(element).save();
+      toast.success("PDF saved successfully!");
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      toast.error("Failed to generate PDF");
+    }
+  };
+
+  const printReceipt = () => {
+    try {
+      const element = document.getElementById('receipt-preview');
+      if (!element) {
+        toast.error("Receipt preview not found");
+        return;
+      }
+
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        toast.error("Please allow popups for printing");
+        return;
+      }
+
+      // Copy styles
+      const styles = Array.from(document.styleSheets)
+        .map(styleSheet => {
+          try {
+            return Array.from(styleSheet.cssRules)
+              .map(rule => rule.cssText)
+              .join('');
+          } catch (e) {
+            return '';
+          }
+        })
+        .join('');
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>RJB TRANZ Receipt</title>
+            <style>
+              ${styles}
+              @media print {
+                body { margin: 0; }
+                .no-print { display: none !important; }
+              }
+            </style>
+          </head>
+          <body>
+            ${element.innerHTML}
+          </body>
+        </html>
+      `);
+
+      printWindow.document.close();
+      printWindow.focus();
+
+      // Wait for content to load then print
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+        toast.success("Sent to printer!");
+      }, 500);
+
+    } catch (error) {
+      console.error('Print error:', error);
+      toast.error("Failed to print receipt");
+    }
+  };
+
   // Render preview step
   const renderPreview = () => (
     <CardContent className="p-4 sm:p-6 space-y-6">
@@ -765,10 +975,10 @@ const CountryModal: React.FC<CountryModalProps> = ({
           </Button>
           <div>
             <h3 className="text-xl font-bold font-montserrat">
-              Transaction Preview
+              Transaction Preview & Receipt
             </h3>
             <p className="text-sm text-muted-foreground">
-              Review transaction details before finalizing
+              Review transaction details and generate receipt
             </p>
           </div>
         </div>
@@ -777,124 +987,219 @@ const CountryModal: React.FC<CountryModalProps> = ({
         </div>
       </div>
 
-      {/* Transaction Details */}
+      {/* Receipt Preview */}
       {selectedTransaction && (
         <div className="space-y-6">
-          {/* Sender Information */}
-          <Card className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 dark:from-blue-950/30 dark:to-blue-900/30 dark:border-blue-800/30">
-            <h4 className="font-semibold text-blue-800 dark:text-blue-400 mb-3">Sender Information</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Name:</span>
-                <div className="font-medium">{selectedTransaction.clientName}</div>
+          {/* Receipt Preview Container */}
+          <div
+            id="receipt-preview"
+            className="bg-white border-2 border-orange-200 rounded-lg p-6 shadow-lg max-w-2xl mx-auto"
+            style={{
+              background: 'linear-gradient(135deg, #fff7ed 0%, #fed7aa 100%)',
+              border: '3px solid #ea580c'
+            }}
+          >
+            {/* Company Header */}
+            <div className="text-center mb-6 border-b-2 border-orange-300 pb-4">
+              <div className="flex items-center justify-center gap-4 mb-4">
+                <img
+                  src="https://i.ibb.co/nsymNz8D/OIP.webp"
+                  alt="RJB TRANZ Logo"
+                  className="h-16 w-16 object-contain"
+                />
+                <div>
+                  <h1 className="text-3xl font-bold bg-gradient-to-r from-orange-600 to-orange-800 bg-clip-text text-transparent font-montserrat">
+                    RJB TRANZ
+                  </h1>
+                  <p className="text-orange-700 font-medium">Currency Exchange Management</p>
+                </div>
               </div>
-              <div>
-                <span className="text-muted-foreground">Email:</span>
-                <div className="font-medium">{selectedTransaction.clientEmail || 'Not provided'}</div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Phone:</span>
-                <div className="font-medium">{selectedTransaction.phoneNumber}</div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Transaction ID:</span>
-                <div className="font-mono text-xs">{selectedTransaction.formatId}</div>
+              <div className="text-sm text-orange-600">
+                <p>Professional Currency Exchange Services</p>
+                <p>Accra, Ghana | +233-123-456-789 | admin@rjbtranz.com</p>
               </div>
             </div>
-          </Card>
 
-          {/* Receiver Information */}
-          <Card className="p-4 bg-gradient-to-r from-green-50 to-green-100 border border-green-200 dark:from-green-950/30 dark:to-green-900/30 dark:border-green-800/30">
-            <h4 className="font-semibold text-green-800 dark:text-green-400 mb-3">Receiver Information</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Name:</span>
-                <div className="font-medium">{receiverInfo.fullName}</div>
+            {/* Transaction Details */}
+            <div className="space-y-4">
+              {/* Transaction Header */}
+              <div className="bg-gradient-to-r from-orange-100 to-orange-200 p-4 rounded-lg border border-orange-300">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-lg font-bold text-orange-800">Transaction Receipt</h3>
+                  <div className="text-right">
+                    <p className="text-sm text-orange-700">Transaction ID</p>
+                    <p className="font-mono font-bold text-orange-900">{selectedTransaction.formatId}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-orange-700">Date:</span>
+                    <span className="ml-2 font-medium">{new Date(selectedTransaction.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-orange-700">Time:</span>
+                    <span className="ml-2 font-medium">{new Date(selectedTransaction.createdAt).toLocaleTimeString()}</span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="text-muted-foreground">Email:</span>
-                <div className="font-medium">{receiverInfo.email || 'Not provided'}</div>
+
+              {/* Sender & Receiver Info */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Sender */}
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
+                  <h4 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Sender Information
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div>
+                      <span className="text-blue-700">Name:</span>
+                      <span className="ml-2 font-medium">{selectedTransaction.clientName}</span>
+                    </div>
+                    <div>
+                      <span className="text-blue-700">Email:</span>
+                      <span className="ml-2 font-medium">{selectedTransaction.clientEmail || 'Not provided'}</span>
+                    </div>
+                    <div>
+                      <span className="text-blue-700">Phone:</span>
+                      <span className="ml-2 font-medium">{selectedTransaction.phoneNumber}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Receiver */}
+                <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border border-green-200">
+                  <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
+                    <Download className="h-4 w-4" />
+                    Receiver Information
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div>
+                      <span className="text-green-700">Name:</span>
+                      <span className="ml-2 font-medium">{receiverInfo.fullName}</span>
+                    </div>
+                    <div>
+                      <span className="text-green-700">Email:</span>
+                      <span className="ml-2 font-medium">{receiverInfo.email || 'Not provided'}</span>
+                    </div>
+                    <div>
+                      <span className="text-green-700">Phone:</span>
+                      <span className="ml-2 font-medium">{receiverInfo.phoneNumber || 'Not provided'}</span>
+                    </div>
+                    <div>
+                      <span className="text-green-700">Country:</span>
+                      <span className="ml-2 font-medium flex items-center gap-1">
+                        <span>{country.flag}</span>
+                        {country.name}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="text-muted-foreground">Phone:</span>
-                <div className="font-medium">{receiverInfo.phoneNumber || 'Not provided'}</div>
+
+              {/* Amount Details */}
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 p-4 rounded-lg border border-amber-200">
+                <h4 className="font-semibold text-amber-800 mb-3 flex items-center gap-2">
+                  <CurrencyDollar className="h-4 w-4" />
+                  Transaction Details
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-amber-700">Amount Sent:</span>
+                      <span className="font-bold text-lg">${selectedTransaction.amount.toLocaleString()} {selectedTransaction.fromCurrency}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-amber-700">Exchange Rate:</span>
+                      <span className="font-mono font-medium">{(customExchangeRate !== null ? customExchangeRate : selectedTransaction.exchangeRate).toFixed(4)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-amber-700">Transaction Fee:</span>
+                      <span className="font-medium">${selectedTransaction.fee.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-amber-700">Amount to Receive:</span>
+                      <span className="font-bold text-lg text-green-600">
+                        {(selectedTransaction.amount * (customExchangeRate !== null ? customExchangeRate : selectedTransaction.exchangeRate)).toLocaleString()} {selectedTransaction.toCurrency}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-amber-700">Transaction Type:</span>
+                      <span className="capitalize font-medium">{selectedTransaction.transactionType}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-amber-700">Status:</span>
+                      <Badge className={`${getStatusColor(selectedTransaction.status)} text-xs`}>
+                        {getStatusIcon(selectedTransaction.status)}
+                        <span className="ml-1 capitalize">{selectedTransaction.status}</span>
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="text-muted-foreground">Country:</span>
-                <div className="font-medium flex items-center gap-2">
-                  <span>{country.flag}</span>
-                  <span>{country.name}</span>
+
+              {/* Footer */}
+              <div className="text-center border-t border-orange-300 pt-4">
+                <p className="text-sm text-orange-600 mb-2">
+                  Thank you for choosing RJB TRANZ for your currency exchange needs!
+                </p>
+                <p className="text-xs text-orange-500">
+                  This receipt was generated on {new Date().toLocaleString()}
+                </p>
+                <div className="mt-4 flex justify-center">
+                  <div className="bg-orange-100 px-4 py-2 rounded-lg">
+                    <p className="text-xs text-orange-700 font-medium">
+                      Unique Code: {selectedTransaction.uniqueCode}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
-          </Card>
+          </div>
 
-          {/* Amount Details */}
-          <Card className="p-4 bg-gradient-to-r from-amber-50 to-amber-100 border border-amber-200 dark:from-amber-950/30 dark:to-amber-900/30 dark:border-amber-800/30">
-            <h4 className="font-semibold text-amber-800 dark:text-amber-400 mb-3">Amount Details</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Amount Sent:</span>
-                <div className="font-bold text-lg">${selectedTransaction.amount.toLocaleString()} {selectedTransaction.fromCurrency}</div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Amount to Receive:</span>
-                <div className="font-bold text-lg text-green-600">
-                  {(selectedTransaction.amount * (customExchangeRate !== null ? customExchangeRate : country.rate.rate)).toLocaleString()} {country.currency}
-                </div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Exchange Rate:</span>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    value={customExchangeRate !== null ? customExchangeRate : country.rate.rate}
-                    onChange={(e) => {
-                      const value = parseFloat(e.target.value);
-                      setCustomExchangeRate(isNaN(value) ? country.rate.rate : value);
-                    }}
-                    className="font-mono w-32 h-8 text-sm"
-                    step="0.0001"
-                    min="0"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setCustomExchangeRate(null)}
-                    className="h-8 px-2 text-xs"
-                    title="Reset to current rate"
-                  >
-                    Reset
-                  </Button>
-                </div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Transaction Fee:</span>
-                <div className="font-medium">${selectedTransaction.fee.toFixed(2)}</div>
-              </div>
-            </div>
-          </Card>
-
-          {/* Confirmation Buttons */}
+          {/* Action Buttons */}
           <div className="flex flex-col gap-3 pt-4 border-t">
+            {/* PDF and Print Buttons */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Button
+                onClick={generatePDF}
+                className="w-full h-12 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
+              >
+                <FloppyDisk className="h-5 w-5 mr-2" />
+                Save as PDF
+              </Button>
+
+              <Button
+                onClick={printReceipt}
+                variant="outline"
+                className="w-full h-12 border-2 border-orange-500 hover:bg-orange-50 hover:border-orange-600 transition-all duration-300 hover:scale-105"
+              >
+                <Printer className="h-5 w-5 mr-2" />
+                Print Receipt
+              </Button>
+            </div>
+
+            {/* Complete Transaction */}
             <Button
               onClick={async () => {
                 setIsSecuring(true);
                 try {
                   toast.info("Processing transaction...");
                   await new Promise(resolve => setTimeout(resolve, 2000));
-                  
+
                   // Update transaction status to completed
                   const updatedTransaction = {
                     ...selectedTransaction,
                     status: 'completed' as const,
-                    receiptPrinted: false
+                    receiptPrinted: true
                   };
-                  
+
                   if (onTransactionCreated) {
                     onTransactionCreated(updatedTransaction);
                   }
-                  
+
                   toast.success("Transaction completed successfully!");
                   onClose();
                 } catch (error) {
@@ -991,8 +1296,8 @@ const CountryModal: React.FC<CountryModalProps> = ({
           />
         </div>
 
-        {/* Amount and Currency - Mandatory */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Amount and Currencies - Mandatory */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">
               Amount <span className="text-red-500">*</span>
@@ -1008,20 +1313,29 @@ const CountryModal: React.FC<CountryModalProps> = ({
               required
             />
           </div>
+
+          {/* Sender Currency */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">
-              Currency <span className="text-red-500">*</span>
+              Sender Currency <span className="text-red-500">*</span>
             </label>
-            <div className="h-12 px-3 border rounded-md bg-muted/50 flex items-center font-mono font-medium">
-              {formData.currency}
-            </div>
+            <select
+              value={senderCurrency}
+              onChange={(e) => setSenderCurrency(e.target.value)}
+              className="h-12 px-3 border rounded-md bg-muted/50 w-full"
+            >
+              {availableCurrencies.map((c) => (
+                <option key={`sender-${c}`} value={c}>{c}</option>
+              ))}
+            </select>
           </div>
+
         </div>
 
-        {/* Phone Number - Mandatory */}
+        {/* Phone Number - Optional */}
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">
-            Phone Number <span className="text-red-500">*</span>
+            Phone Number <span className="text-muted-foreground">(optional)</span>
           </label>
           <Input
             type="tel"
@@ -1029,7 +1343,6 @@ const CountryModal: React.FC<CountryModalProps> = ({
             onChange={(e) => handleFormChange('phoneNumber', e.target.value)}
             placeholder="+1 234 567 8900"
             className="h-12"
-            required
           />
         </div>
 
@@ -1044,17 +1357,61 @@ const CountryModal: React.FC<CountryModalProps> = ({
               </div>
               <div>
                 <span className="text-muted-foreground">Exchange Rate:</span>
-                <div className="font-mono">{country.rate.rate.toFixed(4)}</div>
+                <div className="font-mono">{(getRateForPair(senderCurrency, receiverCurrency) * 1.05).toFixed(4)}</div>
               </div>
               <div>
                 <span className="text-muted-foreground">Amount:</span>
-                <div className="font-medium">{formData.amount || '0.00'} {formData.currency}</div>
+                <div className="font-medium">{formData.amount || '0.00'} {senderCurrency}</div>
               </div>
               <div>
                 <span className="text-muted-foreground">Estimated Fee:</span>
-                <div className="font-medium">${formData.amount ? (parseFloat(formData.amount) * 0.025).toFixed(2) : '0.00'}</div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    value={customFee !== null ? customFee : (isDollarToDollar ? 0 : (formData.amount ? parseFloat(formData.amount) * 0.05 : 0))}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value);
+                      setCustomFee(isNaN(value) ? null : value);
+                    }}
+                    className="font-mono w-20 h-8 text-sm"
+                    step="0.01"
+                    min="0"
+                    placeholder={isDollarToDollar ? "0.00" : "0.00"}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {isDollarToDollar ? "(D2D)" : ""}
+                  </span>
+                </div>
               </div>
             </div>
+
+            {/* Dollar to Dollar Toggle */}
+            {senderCurrency === 'USD' && receiverCurrency === 'USD' && (
+              <div className="flex items-center justify-between pt-2 border-t border-primary/10">
+                <span className="text-sm font-medium">Dollar to Dollar (D2D)</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {isDollarToDollar ? "Free" : "Charged"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDollarToDollar(!isDollarToDollar);
+                      setCustomFee(null); // Reset custom fee when toggling
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                      isDollarToDollar ? 'bg-green-600' : 'bg-gray-200'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        isDollarToDollar ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       </div>
@@ -1124,12 +1481,12 @@ const CountryModal: React.FC<CountryModalProps> = ({
   );
 
   return (
-    <div 
+    <div
       className="modal-backdrop"
       onClick={onClose}
     >
-      <Card 
-        className="modal-content bg-card backdrop-blur-none border-2 border-primary/20 animate-scale-in shadow-2xl mobile-modal"
+      <Card
+        className="modal-content bg-card backdrop-blur-none border-2 border-primary/20 animate-scale-in shadow-2xl mobile-modal country-modal-scale overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Conditional Step Rendering */}
@@ -1308,78 +1665,36 @@ const CountryModal: React.FC<CountryModalProps> = ({
                 </Button>
               </div>
 
-              {/* Send/Receive Buttons */}
-              <div className="flex flex-col sm:flex-row items-center gap-3 relative z-10">
-                <Button
-                  onClick={handleSendClick}
-                  className="w-full sm:flex-1 h-12 sm:h-12 bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 hover:from-blue-700 hover:via-blue-800 hover:to-blue-900 transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl relative overflow-hidden group mobile-button"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500"></div>
-                  <Upload className="h-5 w-5 mr-2 relative z-10" />
-                  <span className="relative z-10 mobile-text">Send {country.currency}</span>
-                </Button>
-                <Button
-                  onClick={handleReceiveClick}
-                  variant="outline"
-                  className="w-full sm:flex-1 h-12 sm:h-12 border-2 border-primary/50 hover:bg-primary/10 hover:border-primary transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg relative overflow-hidden group mobile-button"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500"></div>
-                  <Download className="h-5 w-5 mr-2 relative z-10" />
-                  <span className="relative z-10 mobile-text">Receive {country.currency}</span>
-                </Button>
-              </div>
-
               {/* Exchange Rate Info */}
             </CardHeader>
-            <CardContent className="p-4 sm:p-6 overflow-y-auto max-h-[calc(90vh-200px)] custom-scrollbar">
+            <CardContent className="p-2 sm:p-3 overflow-hidden">
               {/* Filters */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <Card className="p-3 sm:p-4 bg-gradient-to-br from-primary/5 to-primary/10 border border-primary/20 hover:shadow-lg transition-all duration-300 animate-card-entrance mobile-card">
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-muted-foreground font-montserrat mobile-text">Current Rate</p>
-                      <p className="text-lg sm:text-2xl font-bold font-mono bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent truncate">
-                        {country.rate.rate.toFixed(4)}
-                      </p>
-                    </div>
-                    <CurrencyDollar className="h-6 w-6 sm:h-8 sm:w-8 text-primary animate-pulse flex-shrink-0" weight="duotone" />
-                  </div>
-                </Card>
-                
-                <Card className="p-3 sm:p-4 bg-gradient-to-br from-accent/5 to-accent/10 border border-accent/20 hover:shadow-lg transition-all duration-300 animate-card-entrance mobile-card" style={{animationDelay: '100ms'}}>
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-muted-foreground font-montserrat mobile-text">24h Change</p>
-                      <div className={`flex items-center text-base sm:text-lg font-bold ${
-                        country.rate.changePercent > 0 ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {country.rate.changePercent > 0 ? (
-                          <TrendUp className="h-4 w-4 mr-1 animate-bounce flex-shrink-0" />
-                        ) : (
-                          <TrendDown className="h-4 w-4 mr-1 animate-bounce flex-shrink-0" />
-                        )}
-                        <span className="truncate">{country.rate.changePercent > 0 ? '+' : ''}{country.rate.changePercent.toFixed(2)}%</span>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="p-3 sm:p-4 bg-gradient-to-br from-secondary/5 to-secondary/10 border border-secondary/20 hover:shadow-lg transition-all duration-300 animate-card-entrance mobile-card" style={{animationDelay: '200ms'}}>
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-muted-foreground font-montserrat mobile-text">Last Updated</p>
-                      <p className="text-xs sm:text-sm font-medium font-mono mobile-text truncate">
-                        {new Date(country.rate.lastUpdated).toLocaleString()}
-                      </p>
-                    </div>
-                    <Clock className="h-6 w-6 sm:h-8 sm:w-8 text-secondary animate-pulse flex-shrink-0" weight="duotone" />
-                  </div>
-                </Card>
+              {/* Send/Receive Buttons - Replacing Current Rate */}
+              <div className="mb-4 country-modal-grid-low country-modal-actions-scale">
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={handleSendClick}
+                    className="flex-1 h-12 bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 hover:from-blue-700 hover:via-blue-800 hover:to-blue-900 transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl relative overflow-hidden group"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500"></div>
+                    <Upload className="h-5 w-5 mr-2 relative z-10" />
+                    <span className="relative z-10">Send {country.currency}</span>
+                  </Button>
+                  <Button
+                    onClick={handleReceiveClick}
+                    variant="outline"
+                    className="flex-1 h-12 border-2 border-primary/50 hover:bg-primary/10 hover:border-primary transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg relative overflow-hidden group"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500"></div>
+                    <Download className="h-5 w-5 mr-2 relative z-10" />
+                    <span className="relative z-10">Receive {country.currency}</span>
+                  </Button>
+                </div>
               </div>
 
               {/* Transaction Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <Card className="p-3 sm:p-4 hover:shadow-md transition-all duration-300 animate-card-entrance mobile-card" style={{animationDelay: '300ms'}}>
+              <div className="grid grid-cols-3 gap-2 mb-4 country-modal-grid-low">
+                <Card className="p-2 sm:p-3 hover:shadow-md transition-all duration-300 animate-card-entrance mobile-card" style={{animationDelay: '300ms'}}>
                   <div className="text-center">
                     <p className="text-sm text-muted-foreground font-montserrat mobile-text">Total Volume</p>
                     <p className="text-lg sm:text-xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
@@ -1387,7 +1702,7 @@ const CountryModal: React.FC<CountryModalProps> = ({
                     </p>
                   </div>
                 </Card>
-                <Card className="p-3 sm:p-4 hover:shadow-md transition-all duration-300 animate-card-entrance mobile-card" style={{animationDelay: '400ms'}}>
+                <Card className="p-2 sm:p-3 hover:shadow-md transition-all duration-300 animate-card-entrance mobile-card" style={{animationDelay: '400ms'}}>
                   <div className="text-center">
                     <p className="text-sm text-muted-foreground font-montserrat mobile-text">Total Fees</p>
                     <p className="text-lg sm:text-xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
@@ -1395,7 +1710,7 @@ const CountryModal: React.FC<CountryModalProps> = ({
                     </p>
                   </div>
                 </Card>
-                <Card className="p-3 sm:p-4 hover:shadow-md transition-all duration-300 animate-card-entrance mobile-card" style={{animationDelay: '500ms'}}>
+                <Card className="p-2 sm:p-3 hover:shadow-md transition-all duration-300 animate-card-entrance mobile-card" style={{animationDelay: '500ms'}}>
                   <div className="text-center">
                     <p className="text-sm text-muted-foreground font-montserrat mobile-text">Completed</p>
                     <p className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
@@ -1406,7 +1721,7 @@ const CountryModal: React.FC<CountryModalProps> = ({
               </div>
 
               {/* Filters */}
-              <Card className="p-3 sm:p-4 mb-6 bg-gradient-to-r from-muted/20 via-muted/30 to-muted/20 border border-muted animate-card-entrance mobile-card" style={{animationDelay: '600ms'}}>
+              <Card className="p-2 sm:p-3 mb-4 bg-gradient-to-r from-muted/20 via-muted/30 to-muted/20 border border-muted animate-card-entrance mobile-card" style={{animationDelay: '600ms'}}>
                 <div className="flex flex-col gap-4">
                   {/* Search */}
                   <div className="relative">
@@ -1474,7 +1789,7 @@ const CountryModal: React.FC<CountryModalProps> = ({
               </Card>
 
               {/* Recent Transactions */}
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between animate-card-entrance" style={{animationDelay: '700ms'}}>
                   <h3 className="text-base sm:text-lg font-semibold font-montserrat bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent mobile-header">
                     Recent Transactions ({filteredTransactions.length})
@@ -1485,11 +1800,11 @@ const CountryModal: React.FC<CountryModalProps> = ({
                 </div>
 
                 {filteredTransactions.length > 0 ? (
-                  <div className="space-y-3 max-h-80 sm:max-h-96 overflow-y-auto custom-scrollbar">
+                  <div className="space-y-2 max-h-60 sm:max-h-80 overflow-y-auto custom-scrollbar">
                     {filteredTransactions.map((transaction, index) => (
-                      <Card 
-                        key={transaction.id} 
-                        className="p-3 sm:p-4 hover:bg-muted/50 hover:shadow-md hover:scale-[1.01] transition-all duration-200 animate-card-entrance border border-muted/50 hover:border-primary/30 mobile-card" 
+                      <Card
+                        key={transaction.id}
+                        className="p-2 sm:p-3 hover:bg-muted/50 hover:shadow-md hover:scale-[1.01] transition-all duration-200 animate-card-entrance border border-muted/50 hover:border-primary/30 mobile-card"
                         style={{animationDelay: `${800 + index * 100}ms`}}
                       >
                         <div className="flex items-center gap-3 sm:gap-4">
@@ -1538,7 +1853,7 @@ const CountryModal: React.FC<CountryModalProps> = ({
                     ))}
                   </div>
                 ) : (
-                  <Card className="p-6 sm:p-8 text-center bg-gradient-to-br from-muted/20 to-muted/30 animate-card-entrance mobile-card" style={{animationDelay: '800ms'}}>
+                  <Card className="p-4 sm:p-6 text-center bg-gradient-to-br from-muted/20 to-muted/30 animate-card-entrance mobile-card" style={{animationDelay: '800ms'}}>
                     <div className="space-y-4">
                       <Funnel className="h-12 w-12 sm:h-16 sm:w-16 text-muted-foreground mx-auto animate-float" />
                       <div>

@@ -229,8 +229,8 @@ const FinancialCarousel: React.FC<FinancialCarouselProps> = ({
   // Render standby mode (fullscreen)
   if (isStandbyMode) {
     return (
-      <div 
-        className="fixed inset-0 z-[9999] bg-black flex items-center justify-center cursor-pointer standby-carousel"
+      <div
+        className="fixed inset-0 z-[9999] bg-black flex items-center justify-center cursor-pointer standby-carousel h-screen w-screen"
         onClick={handleWakeUp}
       >
         {/* Background Image Carousel */}
@@ -246,21 +246,11 @@ const FinancialCarousel: React.FC<FinancialCarouselProps> = ({
 
         {/* Content Overlay */}
         <div className="relative z-10 text-white space-y-10 px-8 max-w-6xl w-full">
-          {/* Branding and Clock Header */}
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-8">
-            <div className="space-y-1 text-left">
-              <div className="text-3xl sm:text-4xl lg:text-5xl font-bold font-montserrat drop-shadow-2xl">RJB TRANZ</div>
-              <div className="text-sm sm:text-base lg:text-lg text-gray-300 font-montserrat drop-shadow-lg">
-                Professional Money Exchange & Remittance CRM System
-              </div>
-            </div>
-            <div className="space-y-2 text-right">
-              <div className="text-5xl sm:text-6xl lg:text-7xl font-light font-mono tracking-wider drop-shadow-2xl">
-                {formatTime(currentTime)}
-              </div>
-              <div className="text-base sm:text-lg lg:text-xl text-gray-300 font-montserrat drop-shadow-lg">
-                {formatDate(currentTime)}
-              </div>
+          {/* Branding Header */}
+          <div className="text-center">
+            <div className="text-2xl sm:text-3xl lg:text-4xl font-bold font-montserrat drop-shadow-2xl">RJB TRANZ</div>
+            <div className="text-xs sm:text-sm lg:text-base text-gray-300 font-montserrat drop-shadow-lg mt-2">
+              Professional Money Exchange & Remittance CRM System
             </div>
           </div>
 

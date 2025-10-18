@@ -3,7 +3,7 @@
     "private": false,
     "version": "1.0.0",
     "description": "RJB TRANZ Professional Currency Exchange CRM - Desktop Application",
-    "main": "electron/main.js",
+    "main": "electron/main.cjs",
     "homepage": "./",
     "author": {
         "name": "RJB TRANZ",
@@ -13,7 +13,7 @@
         "type": "git",
         "url": "https://github.com/your-username/rjb-tranz-desktop.git"
     },
-    "type": "module",
+    
     "scripts": {
         "dev": "vite",
         "start": "vite preview --host 0.0.0.0 --port $PORT",
@@ -79,6 +79,7 @@
         "embla-carousel-fade": "^8.6.0",
         "embla-carousel-react": "^8.5.2",
         "framer-motion": "^12.23.22",
+        "html2pdf.js": "^0.12.1",
         "input-otp": "^1.4.2",
         "lucide-react": "^0.484.0",
         "marked": "^15.0.7",

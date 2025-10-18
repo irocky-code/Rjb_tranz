@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Use environment variables or fallback to placeholder values
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDYwNjg0MDAsImV4cCI6MTk2MTY0NDQwMH0.placeholder';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ucakztqgjaacjwejxcuz.supabase.co';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjYWt6dHFnamFhY2p3ZWp4Y3V6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA3MTMwNTIsImV4cCI6MjA3NjI4OTA1Mn0.Rcvs1SPKp6Qc4D78gZ0OhMDKRFo1NZMSzahiDgDy114';
 
 // Only create client if we have valid-looking credentials
 export const supabase = createClient(supabaseUrl, supabaseKey, {

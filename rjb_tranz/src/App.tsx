@@ -122,6 +122,7 @@ interface Transaction {
   transactionType: 'send' | 'receive';
   uniqueId: string;
   formatId: string;
+  uniqueCode: string;
 }
 
 interface Client {
@@ -194,6 +195,7 @@ function App() {
     currency: string;
     pair: string;
     rate: ExchangeRate;
+    region: string;
   } | null>(null);
   const [selectedInvoiceCountry, setSelectedInvoiceCountry] = useState<{
     flag: string;
@@ -254,6 +256,7 @@ function App() {
   
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   
   // Transaction filtering state
@@ -591,7 +594,8 @@ function App() {
               phoneNumber: "+1-555-0123",
               transactionType: "send" as const,
               uniqueId: "A1B2C3D",
-              formatId: "USD-123-2406132158-00001"
+              formatId: "USD-123-2406132158-00001",
+              uniqueCode: "RJB3er43wd5"
             },
             {
               id: "TXN-002",
@@ -608,7 +612,8 @@ function App() {
               phoneNumber: "+1-555-0124",
               transactionType: "send" as const,
               uniqueId: "B2C3D4E",
-              formatId: "USD-124-2406132157-00002"
+              formatId: "USD-124-2406132157-00002",
+              uniqueCode: "RJB4rf56tg7"
             },
             {
               id: "TXN-003",
@@ -625,7 +630,8 @@ function App() {
               phoneNumber: "+1-555-0125",
               transactionType: "receive" as const,
               uniqueId: "C3D4E5F",
-              formatId: "PHP-125-2406132156-00003"
+              formatId: "PHP-125-2406132156-00003",
+              uniqueCode: "RJB5tg67yh8"
             },
             // Add more pending transactions for testing receive functionality
             {
@@ -643,7 +649,8 @@ function App() {
               phoneNumber: "+1-555-0126",
               transactionType: "send" as const,
               uniqueId: "D4E5F6G",
-              formatId: "USD-126-2406132155-00004"
+              formatId: "USD-126-2406132155-00004",
+              uniqueCode: "RJB6yh78uj9"
             },
             {
               id: "TXN-005",
@@ -660,7 +667,8 @@ function App() {
               phoneNumber: "+1-555-0127",
               transactionType: "send" as const,
               uniqueId: "E5F6G7H",
-              formatId: "USD-127-2406132154-00005"
+              formatId: "USD-127-2406132154-00005",
+              uniqueCode: "RJB7uj90ik0"
             },
             {
               id: "TXN-006",
@@ -677,7 +685,8 @@ function App() {
               phoneNumber: "+1-555-0128",
               transactionType: "send" as const,
               uniqueId: "F6G7H8I",
-              formatId: "USD-128-2406132153-00006"
+              formatId: "USD-128-2406132153-00006",
+              uniqueCode: "RJB8ik01ol2"
             }
           ];
           setTransactions(sampleTransactions);
@@ -788,7 +797,7 @@ function App() {
           { pair: "USD/BAM", rate: 1.80, change: -0.01, changePercent: -0.56, lastUpdated: new Date().toISOString(), region: 'europe' },
           { pair: "USD/BYN", rate: 3.25, change: 0.02, changePercent: 0.62, lastUpdated: new Date().toISOString(), region: 'europe' },
 
-          // North America
+          // North America (USA pinned to top)
           { pair: "USD/USD", rate: 1.00, change: 0.00, changePercent: 0.00, lastUpdated: new Date().toISOString(), region: 'north-america' },
           { pair: "USD/CAD", rate: 1.36, change: 0.008, changePercent: 0.59, lastUpdated: new Date().toISOString(), region: 'north-america' },
           { pair: "USD/MXN", rate: 17.85, change: -0.12, changePercent: -0.67, lastUpdated: new Date().toISOString(), region: 'north-america' },
@@ -801,6 +810,9 @@ function App() {
           { pair: "USD/JMD", rate: 155.25, change: 0.85, changePercent: 0.55, lastUpdated: new Date().toISOString(), region: 'north-america' },
           { pair: "USD/BBD", rate: 2.00, change: 0.00, changePercent: 0.00, lastUpdated: new Date().toISOString(), region: 'north-america' },
           { pair: "USD/BZD", rate: 2.02, change: 0.00, changePercent: 0.00, lastUpdated: new Date().toISOString(), region: 'north-america' },
+          { pair: "USD/BMD", rate: 1.00, change: 0.00, changePercent: 0.00, lastUpdated: new Date().toISOString(), region: 'north-america' },
+          { pair: "USD/KYD", rate: 0.83, change: 0.00, changePercent: 0.00, lastUpdated: new Date().toISOString(), region: 'north-america' },
+          { pair: "USD/AWG", rate: 1.79, change: 0.00, changePercent: 0.00, lastUpdated: new Date().toISOString(), region: 'north-america' },
 
           // South America
           { pair: "USD/BRL", rate: 4.95, change: 0.08, changePercent: 1.64, lastUpdated: new Date().toISOString(), region: 'south-america' },
@@ -1059,12 +1071,102 @@ function App() {
 
   const refreshData = async () => {
     setIsRefreshing(true);
-    
+
     try {
-      // Simulate API refresh - Faster
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      // Update exchange rates with slight variations
+      // Fetch real-time exchange rates from API
+      const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+      const data = await response.json();
+
+      if (data && data.rates) {
+        // Convert API response to our ExchangeRate format
+        const updatedRates: ExchangeRate[] = Object.entries(data.rates).map(([currency, rateValue]) => {
+          // Map currencies to regions for better organization
+          const regionMap: { [key: string]: ExchangeRate['region'] } = {
+            // North America
+            'USD': 'north-america', 'CAD': 'north-america', 'MXN': 'north-america',
+            'GTQ': 'north-america', 'HNL': 'north-america', 'NIO': 'north-america',
+            'CRC': 'north-america', 'PAB': 'north-america', 'DOP': 'north-america',
+            'JMD': 'north-america', 'BBD': 'north-america', 'BZD': 'north-america',
+            'BMD': 'north-america', 'KYD': 'north-america', 'AWG': 'north-america',
+
+            // Europe
+            'EUR': 'europe', 'GBP': 'europe', 'CHF': 'europe', 'SEK': 'europe',
+            'NOK': 'europe', 'DKK': 'europe', 'PLN': 'europe', 'CZK': 'europe',
+            'HUF': 'europe', 'RON': 'europe', 'BGN': 'europe', 'HRK': 'europe',
+            'RSD': 'europe', 'RUB': 'europe', 'UAH': 'europe', 'TRY': 'europe',
+            'ALL': 'europe', 'AMD': 'europe', 'AZN': 'europe', 'BAM': 'europe',
+            'BYN': 'europe', 'ISK': 'europe', 'MDL': 'europe', 'MKD': 'europe',
+            'GEL': 'europe',
+
+            // Asia
+            'JPY': 'asia', 'CNY': 'asia', 'KRW': 'asia', 'SGD': 'asia',
+            'MYR': 'asia', 'THB': 'asia', 'VND': 'asia', 'IDR': 'asia',
+            'PKR': 'asia', 'LKR': 'asia', 'BDT': 'asia', 'NPR': 'asia',
+            'MMK': 'asia', 'KHR': 'asia', 'LAK': 'asia', 'MNT': 'asia',
+            'AFN': 'asia', 'UZS': 'asia', 'KZT': 'asia', 'KGS': 'asia',
+            'TJS': 'asia', 'TMT': 'asia', 'BND': 'asia', 'MVR': 'asia',
+            'BTN': 'asia', 'INR': 'asia', 'PHP': 'asia',
+
+            // Africa
+            'GHS': 'africa', 'NGN': 'africa', 'KES': 'africa', 'ZAR': 'africa',
+            'EGP': 'africa', 'MAD': 'africa', 'TND': 'africa', 'ETB': 'africa',
+            'UGX': 'africa', 'TZS': 'africa', 'RWF': 'africa', 'XOF': 'africa',
+            'BWP': 'africa', 'NAD': 'africa', 'ZMW': 'africa', 'AOA': 'africa',
+            'DZD': 'africa', 'LYD': 'africa', 'SDG': 'africa', 'SOS': 'africa',
+            'DJF': 'africa', 'ERN': 'africa', 'MZN': 'africa', 'MWK': 'africa',
+            'SZL': 'africa', 'LSL': 'africa', 'MGA': 'africa', 'MUR': 'africa',
+            'SCR': 'africa', 'GMD': 'africa', 'GNF': 'africa', 'SLE': 'africa',
+            'LRD': 'africa',
+
+            // South America
+            'BRL': 'south-america', 'ARS': 'south-america', 'CLP': 'south-america',
+            'COP': 'south-america', 'PEN': 'south-america', 'UYU': 'south-america',
+            'VES': 'south-america', 'BOB': 'south-america', 'PYG': 'south-america',
+
+            // Oceania
+            'AUD': 'oceania', 'NZD': 'oceania', 'FJD': 'oceania',
+
+            // Middle East
+            'AED': 'middle-east', 'SAR': 'middle-east', 'QAR': 'middle-east',
+            'KWD': 'middle-east', 'BHD': 'middle-east', 'OMR': 'middle-east',
+            'JOD': 'middle-east', 'LBP': 'middle-east', 'ILS': 'middle-east',
+            'IRR': 'middle-east', 'IQD': 'middle-east', 'SYP': 'middle-east',
+            'YER': 'middle-east'
+          };
+
+          const region = regionMap[currency] || 'other';
+
+          // Calculate change and changePercent (using previous rate if available)
+          const previousRate = (exchangeRates || []).find(r => r.pair === `USD/${currency}`)?.rate || (rateValue as number);
+          const change = (rateValue as number) - previousRate;
+          const changePercent = previousRate !== 0 ? (change / previousRate) * 100 : 0;
+
+          return {
+            pair: `USD/${currency}`,
+            rate: rateValue as number,
+            change,
+            changePercent,
+            lastUpdated: new Date().toISOString(),
+            region: region as ExchangeRate['region']
+          };
+        });
+
+        // Sort to put North America first, then other regions
+        updatedRates.sort((a, b) => {
+          if (a.region === 'north-america' && b.region !== 'north-america') return -1;
+          if (a.region !== 'north-america' && b.region === 'north-america') return 1;
+          return a.pair.localeCompare(b.pair);
+        });
+
+        setExchangeRates(updatedRates);
+        toast.success("Exchange rates updated with live data");
+      } else {
+        throw new Error('Invalid API response');
+      }
+    } catch (error) {
+      console.error('Failed to fetch exchange rates:', error);
+
+      // Fallback to simulated refresh if API fails
       setExchangeRates((prev) => (prev || []).map(rate => {
         if (!rate) return rate;
         return {
@@ -1075,10 +1177,8 @@ function App() {
           lastUpdated: new Date().toISOString()
         };
       }));
-      
-      toast.success("Data refreshed successfully");
-    } catch (error) {
-      toast.error("Failed to refresh data");
+
+      toast.error("Using cached rates - API unavailable");
     } finally {
       setIsRefreshing(false);
     }
@@ -1298,7 +1398,8 @@ function App() {
         name: selectedInvoiceCountry.name,
         currency: selectedInvoiceCountry.currency,
         pair: selectedInvoiceCountry.pair,
-        rate: selectedInvoiceCountry.rate
+        rate: selectedInvoiceCountry.rate,
+        region: selectedInvoiceCountry.rate.region
       });
       // Prevent body scroll when modal opens
       document.body.classList.add('modal-open');
@@ -1607,7 +1708,8 @@ function App() {
         name: getCountryName(currencyPair),
         currency: currency,
         pair: currencyPair,
-        rate: rate
+        rate: rate,
+        region: rate.region
       });
     }
   };
@@ -1635,11 +1737,12 @@ function App() {
   const [touchEndX, setTouchEndX] = useState<number | null>(null);
 
   const handleMobileTabChange = (direction: 'left' | 'right') => {
-    const newIndex = currentTabIndex + (direction === 'right' ? 1 : -1);
-    if (newIndex >= 0 && newIndex < tabs.length) {
-      setCurrentTabIndex(newIndex);
-      setActiveTab(tabs[newIndex]);
-    }
+    const newIndex = direction === 'right'
+      ? (currentTabIndex + 1) % tabs.length  // Loop to first tab when reaching the end
+      : (currentTabIndex - 1 + tabs.length) % tabs.length; // Loop to last tab when reaching the beginning
+
+    setCurrentTabIndex(newIndex);
+    setActiveTab(tabs[newIndex]);
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -1683,52 +1786,43 @@ function App() {
   // Enhanced filtering functions
   const getFilteredRates = () => {
     let filtered = exchangeRates || [];
-    
-    // Apply base currency filter (recompute rates if different base)
-    if (baseCurrency !== "USD") {
-      // For simplicity, we'll show converted rates based on USD rates
-      // In real app, you'd fetch different base currency rates
-      const usdBaseRate = filtered.find(r => r && r.pair === `USD/${baseCurrency}`) || { rate: 1 };
-      filtered = filtered.map(rate => {
-        if (!rate) return rate;
-        return {
-          ...rate,
-          pair: rate.pair.replace('USD', baseCurrency),
-          rate: (rate.rate || 1) / (usdBaseRate.rate || 1)
-        };
-      });
-    }
-    
+
     // Apply region filter
     if (regionFilter !== 'all' && regionFilter !== 'favorites') {
       filtered = filtered.filter(rate => rate && rate.region === regionFilter);
     }
-    
+
     // Apply favorites filter
     if (regionFilter === 'favorites') {
       filtered = filtered.filter(rate => rate && (favoriteRates || []).includes(rate.pair));
     }
-    
-    // Apply search term
-    if (searchTerm) {
-      filtered = filtered.filter(rate => 
+
+    // Apply search term (using debounced version for real-time filtering)
+    if (debouncedSearchTerm) {
+      filtered = filtered.filter(rate =>
         rate && (
-          rate.pair.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          getCountryName(rate.pair).toLowerCase().includes(searchTerm.toLowerCase())
+          rate.pair.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+          getCountryName(rate.pair).toLowerCase().includes(debouncedSearchTerm.toLowerCase())
         )
       );
     }
-    
-    // Apply sorting
+
+    // Apply sorting - put North America first, then sort alphabetically
     filtered.sort((a, b) => {
       if (!a || !b) return 0;
+
+      // Always put North America first
+      if (a.region === 'north-america' && b.region !== 'north-america') return -1;
+      if (a.region !== 'north-america' && b.region === 'north-america') return 1;
+
+      // Within the same region, sort alphabetically
       if (rateSortOrder === 'asc') {
         return a.pair.localeCompare(b.pair);
       } else {
         return b.pair.localeCompare(a.pair);
       }
     });
-    
+
     return filtered.filter(rate => rate != null);
   };
 
@@ -2045,10 +2139,31 @@ function App() {
     }
   }, [activeTab]);
 
+  // Auto-refresh exchange rates every 60 seconds
+  useEffect(() => {
+    if (!autoRefreshRates) return;
+
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing exchange rates...');
+      refreshData();
+    }, 60000); // Refresh every 60 seconds
+
+    return () => clearInterval(interval);
+  }, [autoRefreshRates]);
+
+  // Debounce search term for real-time filtering
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300); // 300ms debounce delay
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   // Reset pagination when search/filter changes
   useEffect(() => {
     setCurrentInvoicePage(1);
-  }, [searchTerm, statusFilter]);
+  }, [debouncedSearchTerm, statusFilter]);
 
   // Show startup splash screen with enhanced loading
   if (showSplash) {
@@ -2298,10 +2413,10 @@ function App() {
                 size="sm"
                 onClick={() => {
                   hapticFeedback();
-                  setShowProfileSettings(true);
+                  setShowSleepMode(true);
                 }}
                 className="text-muted-foreground hover:text-foreground h-8 w-8 px-0 hidden sm:flex"
-                title="Profile Settings"
+                title="Show Carousel"
               >
                 <User className="h-4 w-4" weight="duotone" />
               </Button>
@@ -2326,43 +2441,30 @@ function App() {
       {/* Main Content */}
       <main className="p-4 pb-6 sm:p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          {/* Mobile Tab Navigation with Enhanced Icons & Labels - No Arrows */}
-          <div 
-            className="block sm:hidden mb-6 mobile-tab-container"
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-          >
-            <div className="flex items-center justify-center mb-6">
-              {/* Current Tab Display with 3D Icon - Centered without arrows */}
-              <div className="text-center px-4">
-                <div className="flex items-center justify-center gap-3 mb-2">
-                  {activeTab === 'dashboard' && (
-                    <ChartBar className="h-8 w-8 text-primary drop-shadow-lg" weight="duotone" style={{filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.3))'}} />
-                  )}
-                  {activeTab === 'transactions' && (
-                    <CreditCard className="h-8 w-8 text-primary drop-shadow-lg" weight="duotone" style={{filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.3))'}} />
-                  )}
-                  {activeTab === 'invoices' && (
-                    <Receipt className="h-8 w-8 text-primary drop-shadow-lg" weight="duotone" style={{filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.3))'}} />
-                  )}
-                  {activeTab === 'countries' && (
-                    <Globe className="h-8 w-8 text-primary drop-shadow-lg" weight="duotone" style={{filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.3))'}} />
-                  )}
-                  {activeTab === 'converter' && (
-                    <Calculator className="h-8 w-8 text-primary drop-shadow-lg" weight="duotone" style={{filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.3))'}} />
-                  )}
-                  {activeTab === 'profile-demo' && (
-                    <Camera className="h-8 w-8 text-primary drop-shadow-lg" weight="duotone" style={{filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.3))'}} />
-                  )}
-                  <h2 className="text-2xl font-bold text-foreground capitalize font-montserrat font-dynamic-2xl">
-                    {activeTab.replace('-', ' ')}
-                  </h2>
-                </div>
-                <p className="text-sm text-muted-foreground font-montserrat font-dynamic-sm">
-                  Swipe to navigate between tabs
-                </p>
-              </div>
+          {/* Mobile Tab Navigation with Icons Below Labels */}
+          <div className="block sm:hidden mb-6">
+            <div className="grid grid-cols-3 gap-2 px-4">
+              {[
+                { key: 'dashboard', label: 'Dashboard', icon: ChartBar },
+                { key: 'transactions', label: 'Transactions', icon: CreditCard },
+                { key: 'invoices', label: 'Invoices', icon: Receipt },
+                { key: 'countries', label: 'Countries', icon: Globe },
+                { key: 'converter', label: 'Converter', icon: Calculator },
+                { key: 'profile-demo', label: 'Upload', icon: Camera }
+              ].map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  className={`flex flex-col items-center gap-1 p-3 rounded-lg transition-all duration-300 ${
+                    activeTab === key
+                      ? 'bg-primary text-primary-foreground shadow-lg scale-105'
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:scale-102'
+                  }`}
+                >
+                  <Icon className="h-6 w-6" weight="duotone" />
+                  <span className="text-xs font-medium font-montserrat">{label}</span>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -2411,7 +2513,7 @@ function App() {
             </div>
 
             {/* Metrics Cards with Enhanced Glow Effects */}
-            <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 grid-cols-2 mb-6">
               {isRefreshing || !dataInitialized ? (
                 <>
                   <LoadingStates.MetricCardSkeleton />
@@ -3368,6 +3470,11 @@ function App() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 h-12 transition-fast"
                 />
+                {searchTerm !== debouncedSearchTerm && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                )}
               </div>
               
               {/* Regional Filter Buttons */}
@@ -3426,7 +3533,7 @@ function App() {
             </div>
 
             {/* Countries Grid */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {getFilteredRates().map((rate, index) => {
                 if (!rate) return null;
                 // Filter transactions for this country to show count
@@ -3438,22 +3545,22 @@ function App() {
                 const isFavorite = (favoriteRates || []).includes(rate.pair);
                 
                 return (
-                    <Card 
-                      key={rate.pair || `rate-${index}`} 
-                      className="currency-pair group overflow-hidden card-hover-glass card-ripple animate-card-entrance cursor-pointer transition-fast hover:shadow-2xl hover:scale-[1.015] hover:border-primary/40 bg-gradient-to-br from-card via-card to-muted/20 gpu-accelerated active:shadow-3xl active:scale-[1.01]" 
-                      style={{animationDelay: `${index * 25}ms`}}
+                    <Card
+                      key={rate.pair} // Stable key by category/pair to prevent reshuffling across refreshes
+                      className="currency-pair group overflow-hidden card-hover-glass card-ripple animate-card-entrance cursor-pointer transition-fast hover:shadow-xl hover:scale-[1.02] hover:border-primary/30 bg-gradient-to-br from-card via-card to-muted/20 gpu-accelerated active:shadow-2xl lg:p-3 lg:text-sm"
+                      style={{animationDelay: `${index * 20}ms`}}
                       onClick={() => handleCountryClick(rate.pair)}
                     >
-                    <CardHeader className="pb-4 relative">
-                      <div className="flex items-center gap-4">
-                        <div className="text-3xl transition-fast group-hover:scale-105 group-hover:rotate-6">
+                    <CardHeader className="pb-4 lg:pb-2 relative">
+                      <div className="flex items-center gap-3">
+                        <div className="text-3xl lg:text-2xl transition-fast group-hover:scale-105 group-hover:rotate-6">
                           {getCountryFlag(rate.pair)}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <CardTitle className="text-lg truncate font-mono group-hover:text-primary transition-fast">
+                          <CardTitle className="text-lg lg:text-base truncate font-mono group-hover:text-primary transition-fast">
                             {rate.pair.includes('/') ? rate.pair.split('/')[1] : rate.pair}
                           </CardTitle>
-                          <CardDescription className="truncate font-montserrat">
+                          <CardDescription className="truncate font-montserrat lg:text-sm">
                             {getCountryName(rate.pair)}
                           </CardDescription>
                           {countryTransactions.length > 0 && (
@@ -3463,9 +3570,9 @@ function App() {
                           )}
                         </div>
                       </div>
-                      
+
                       {/* Favorite Star & Click indicator */}
-                      <div className="absolute top-2 right-2 flex items-center gap-2">
+                      <div className="absolute top-1 right-1 flex items-center gap-2">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -3473,51 +3580,53 @@ function App() {
                             e.stopPropagation();
                             toggleFavoriteRate(rate.pair);
                           }}
-                          className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-fast"
+                          className="h-8 w-8 lg:h-6 lg:w-6 p-0 opacity-0 group-hover:opacity-100 transition-fast"
                         >
-                          <Star 
-                            className={`favorite-star h-4 w-4 transition-fast ${
-                              isFavorite 
-                                ? 'text-yellow-500 fill-yellow-500 active' 
+                          <Star
+                            className={`favorite-star h-4 w-4 lg:h-3 lg:w-3 transition-fast ${
+                              isFavorite
+                                ? 'text-yellow-500 fill-yellow-500 active'
                                 : 'text-muted-foreground hover:text-yellow-500'
-                            }`} 
+                            }`}
                             weight={isFavorite ? "fill" : "regular"}
                           />
                         </Button>
                         <div className="opacity-0 group-hover:opacity-100 transition-fast">
-                          <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                          <div className="w-2 h-2 lg:w-1.5 lg:h-1.5 bg-primary rounded-full animate-pulse"></div>
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center p-3 bg-muted/30 rounded-lg group-hover:bg-primary/10 transition-fast">
-                          <span className="text-sm font-medium font-montserrat">Exchange Rate</span>
-                          <span className="font-bold text-xl font-mono group-hover:text-primary transition-fast">
+                    <CardContent className="pt-2">
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center p-2 bg-muted/30 rounded-lg group-hover:bg-primary/10 transition-fast">
+                          <span className="text-sm lg:text-xs font-medium font-montserrat">Exchange Rate</span>
+                          <span className="font-bold text-xl lg:text-lg font-mono group-hover:text-primary transition-fast">
                             {(rate.rate || 0).toFixed(4)}
                           </span>
                         </div>
-                        <div className="flex justify-between items-center p-3 bg-muted/30 rounded-lg group-hover:bg-accent/10 transition-fast">
-                          <span className="text-sm font-medium font-montserrat">24h Change</span>
-                          <div className={`flex items-center font-semibold transition-fast ${(rate.changePercent || 0) > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        <div className="flex justify-between items-center p-2 bg-muted/30 rounded-lg group-hover:bg-accent/10 transition-fast">
+                          <span className="text-sm lg:text-xs font-medium font-montserrat">24h Change</span>
+                          <div className={`flex items-center font-semibold transition-fast text-sm ${(rate.changePercent || 0) > 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {(rate.changePercent || 0) > 0 ? (
-                              <TrendUp className="h-4 w-4 mr-1 group-hover:animate-bounce" />
+                              <TrendUp className="h-4 w-4 lg:h-3 lg:w-3 mr-1 group-hover:animate-bounce" />
                             ) : (
-                              <TrendDown className="h-4 w-4 mr-1 group-hover:animate-bounce" />
+                              <TrendDown className="h-4 w-4 lg:h-3 lg:w-3 mr-1 group-hover:animate-bounce" />
                             )}
                             <span>
                               {(rate.changePercent || 0) > 0 ? '+' : ''}{(rate.changePercent || 0).toFixed(2)}%
                             </span>
                           </div>
                         </div>
-                        <div className="flex justify-between items-center p-3 bg-muted/30 rounded-lg group-hover:bg-muted/50 transition-fast">
-                          <span className="text-sm font-medium font-montserrat">Last Updated</span>
-                          <span className="text-sm font-mono">{safeToLocaleTimeString(rate.lastUpdated)}</span>
+
+                        {/* Last Updated - Only visible on hover */}
+                        <div className="flex justify-between items-center p-2 bg-muted/30 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-300">
+                          <span className="text-sm lg:text-xs font-medium font-montserrat">Last Updated</span>
+                          <span className="text-sm lg:text-xs font-mono">{safeToLocaleTimeString(rate.lastUpdated)}</span>
                         </div>
                       </div>
-                      
+
                       {/* Hover hint */}
-                      <div className="mt-4 text-center opacity-0 group-hover:opacity-100 transition-fast">
+                      <div className="mt-3 text-center opacity-0 group-hover:opacity-100 transition-fast">
                         <p className="text-xs text-primary font-medium font-montserrat">
                           Click to view transaction history & details
                         </p>
@@ -3575,6 +3684,8 @@ function App() {
         <CountryModal
           country={selectedCountry}
           transactions={transactions || []}
+          exchangeRates={exchangeRates || []}
+          countries={[]} // TODO: Pass actual countries array if needed
           onClose={handleCloseCountryModal}
           onSendMoney={handleSendMoney}
           onReceiveMoney={handleReceiveMoney}
@@ -3587,7 +3698,7 @@ function App() {
       {/* Country Selection Modal for Invoice Creation */}
       {showCountrySelection && (
         <div className="modal-backdrop" onClick={handleCountrySelectionCancel}>
-          <div className="modal-content max-w-4xl mobile-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content max-w-3xl lg:max-w-2xl mobile-modal" onClick={(e) => e.stopPropagation()}>
             <Card className="bg-card border-0 shadow-2xl mobile-card">
               <CardHeader className="pb-4 px-4 sm:px-6">
                 <div className="flex items-center justify-between">
@@ -3677,7 +3788,7 @@ function App() {
                 )}
 
                 {/* Countries Grid */}
-                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-h-80 sm:max-h-96 overflow-y-auto custom-scrollbar">
+                <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 overflow-visible">
                   {getFilteredRatesForInvoice().map((rate, index) => {
                     if (!rate) return null;
                     const isSelected = selectedInvoiceCountry?.pair === rate.pair;
@@ -3690,24 +3801,24 @@ function App() {
                         }`}
                         onClick={() => handleCountrySelectionForInvoice(rate.pair)}
                       >
-                        <CardContent className="p-3 sm:p-4">
-                          <div className="flex items-center gap-3">
-                            <div className="text-2xl transition-fast group-hover:scale-105 flex-shrink-0">
+                        <CardContent className="p-3 lg:p-2 sm:p-3">
+                          <div className="flex items-center gap-3 lg:gap-2">
+                            <div className="text-2xl lg:text-xl transition-fast group-hover:scale-105 flex-shrink-0">
                               {getCountryFlag(rate.pair)}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <h4 className="font-semibold truncate font-mono group-hover:text-primary transition-fast text-sm sm:text-base">
+                              <h4 className="font-semibold truncate font-mono group-hover:text-primary transition-fast text-sm lg:text-xs">
                                 {rate.pair.includes('/') ? rate.pair.split('/')[1] : rate.pair}
                               </h4>
-                              <p className="text-xs sm:text-sm text-muted-foreground truncate font-montserrat mobile-text">
+                              <p className="text-xs lg:text-[10px] text-muted-foreground truncate font-montserrat mobile-text">
                                 {getCountryName(rate.pair)}
                               </p>
-                              <p className="text-xs text-muted-foreground mobile-text">
+                              <p className="text-xs lg:text-[10px] text-muted-foreground mobile-text">
                                 Rate: {rate.rate.toFixed(4)}
                               </p>
                             </div>
                             {isSelected && (
-                              <CheckCircle className="h-5 w-5 text-primary flex-shrink-0" weight="fill" />
+                              <CheckCircle className="h-5 w-5 lg:h-4 lg:w-4 text-primary flex-shrink-0" weight="fill" />
                             )}
                           </div>
                         </CardContent>
