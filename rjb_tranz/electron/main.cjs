@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, shell, dialog, ipcMain, systemPreferences } = 
 const { autoUpdater } = require('electron-updater');
 const isDev = require('electron-is-dev');
 const path = require('path');
+const fs = require('fs');
 
 // Keep a global reference of the window object
 let mainWindow;
@@ -9,8 +10,12 @@ let splashWindow;
 
 // Configure auto-updater
 autoUpdater.checkForUpdatesAndNotify();
-autoUpdater.logger = require('electron-log');
-autoUpdater.logger.transports.file.level = 'info';
+try {
+  autoUpdater.logger = require('electron-log');
+  autoUpdater.logger.transports.file.level = 'info';
+} catch (e) {
+  console.warn('electron-log not available; auto-updater will use console logging only');
+}
 
 // Auto-updater events
 autoUpdater.on('checking-for-update', () => {
@@ -19,12 +24,17 @@ autoUpdater.on('checking-for-update', () => {
 
 autoUpdater.on('update-available', (info) => {
   console.log('Update available.');
-  dialog.showMessageBox(mainWindow, {
+  const options = {
     type: 'info',
     title: 'Update Available',
     message: 'A new version is available. It will be downloaded in the background.',
     buttons: ['OK']
-  });
+  };
+  if (mainWindow) {
+    dialog.showMessageBox(mainWindow, options);
+  } else {
+    dialog.showMessageBox(options);
+  }
 });
 
 autoUpdater.on('update-not-available', (info) => {
@@ -44,12 +54,17 @@ autoUpdater.on('download-progress', (progressObj) => {
 
 autoUpdater.on('update-downloaded', (info) => {
   console.log('Update downloaded');
-  dialog.showMessageBox(mainWindow, {
+  const options = {
     type: 'info',
     title: 'Update Ready',
     message: 'Update downloaded. The application will restart to apply the update.',
     buttons: ['Restart Now', 'Later']
-  }).then((result) => {
+  };
+  const showPromise = mainWindow
+    ? dialog.showMessageBox(mainWindow, options)
+    : dialog.showMessageBox(options);
+
+  showPromise.then((result) => {
     if (result.response === 0) {
       autoUpdater.quitAndInstall();
     }
@@ -78,14 +93,14 @@ function createSplashWindow() {
 
 function createWindow() {
   console.log('main.cjs: Creating main window...');
-  // Create the browser window
-  mainWindow = new BrowserWindow({
+  const iconPath = path.join(__dirname, 'assets', 'icon.png');
+
+  const windowOptions = {
     width: 1400,
     height: 900,
     minWidth: 1000,
     minHeight: 700,
     show: false, // Don't show until ready
-    icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -94,11 +109,18 @@ function createWindow() {
       webSecurity: true
     },
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default'
-  });
+  };
+
+  if (fs.existsSync(iconPath)) {
+    windowOptions.icon = iconPath;
+  }
+
+  // Create the browser window
+  mainWindow = new BrowserWindow(windowOptions);
 
   // Load the app
   const startUrl = isDev
-    ? 'http://localhost:5000'
+    ? 'http://localhost:5173'
     : `file://${path.join(__dirname, '../dist/index.html')}`;
 
   console.log('main.cjs: Loading URL:', startUrl);

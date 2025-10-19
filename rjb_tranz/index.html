@@ -27,7 +27,7 @@
     <meta name="msapplication-TileImage" content="https://i.ibb.co/6LY7bxR/rjb-logo.jpg" />
     
     <!-- PWA Manifest (conditionally loaded) -->
-    <link id="manifest-link" rel="manifest" href="/manifest.json" />
+    <link id="manifest-link" rel="manifest" href="./manifest.json" />
     
     <!-- Favicon -->
     <link rel="icon" type="image/jpeg" href="https://i.ibb.co/6LY7bxR/rjb-logo.jpg" />
@@ -47,7 +47,7 @@
     <div id="root"></div>
     
     <!-- Main App Script -->
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="./src/main.tsx"></script>
     
     <!-- Service Worker Registration (disabled in dev, hardened guards) -->
     <script type="module">
@@ -70,11 +70,11 @@
             }
         }
 
-        // Register Service Worker for PWA functionality only in production and not in GitHub Codespaces
-        if (!isDev && !isGitHubDev && 'serviceWorker' in navigator) {
+        // Register Service Worker for PWA functionality only in production, not in GitHub Codespaces, and not in file:// (Electron)
+        if (!isDev && !isGitHubDev && window.location.protocol !== 'file:' && 'serviceWorker' in navigator) {
             window.addEventListener('load', async () => {
                 try {
-                    const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+                    const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
                     console.log('SW registered successfully:', registration.scope);
 
                     // Handle service worker updates

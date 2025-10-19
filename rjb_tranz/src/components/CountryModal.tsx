@@ -788,23 +788,17 @@ const CountryModal: React.FC<CountryModalProps> = ({
             value={receiverInfo.country}
             onChange={(e) => {
               const selectedCountry = e.target.value;
+              const selectedCountryInfo = countries.find(c => c.name === selectedCountry);
               setReceiverInfo(prev => ({
                 ...prev,
                 country: selectedCountry,
-                currency: '' // Reset currency when country changes
+                currency: selectedCountryInfo?.currency || '' // Set currency based on selected country
               }));
             }}
             className="h-12 px-3 border rounded-md bg-muted/50 w-full"
           >
             <option value="">Select a country</option>
-            {Array.from(new Set(exchangeRates.map(rate => {
-              const [base, target] = rate.pair.split('/');
-              // Get country info for base currency
-              const baseCountry = countries.find(c => c.currency === base);
-              // Get country info for target currency
-              const targetCountry = countries.find(c => c.currency === target);
-              return [baseCountry, targetCountry].filter(Boolean);
-            }).flat())).filter((countryInfo): countryInfo is CountryInfo => countryInfo !== undefined).map((countryInfo) => (
+            {countries.map((countryInfo) => (
               <option key={`country-${countryInfo.currency}`} value={countryInfo.name}>
                 {countryInfo.flag} {countryInfo.name} ({countryInfo.currency})
               </option>

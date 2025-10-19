@@ -3685,7 +3685,14 @@ function App() {
           country={selectedCountry}
           transactions={transactions || []}
           exchangeRates={exchangeRates || []}
-          countries={[]} // TODO: Pass actual countries array if needed
+          countries={exchangeRates?.map(rate => ({
+            flag: getCountryFlag(rate.pair),
+            name: getCountryName(rate.pair),
+            currency: rate.pair.split('/')[1],
+            pair: rate.pair,
+            rate: rate,
+            region: rate.region
+          })) || []}
           onClose={handleCloseCountryModal}
           onSendMoney={handleSendMoney}
           onReceiveMoney={handleReceiveMoney}

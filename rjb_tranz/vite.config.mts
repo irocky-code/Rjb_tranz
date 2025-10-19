@@ -19,6 +19,21 @@ export default defineConfig({
       sparkPlugin() as PluginOption,
     ]),
   ],
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: false,
+    target: 'esnext',
+    rollupOptions: {
+      input: 'index.html',
+    },
+  },
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
+  // Ensure relative asset paths when packaged under Electron (file://)
+  base: './',
   resolve: {
     alias: {
       '@': resolve(projectRoot, 'src')
