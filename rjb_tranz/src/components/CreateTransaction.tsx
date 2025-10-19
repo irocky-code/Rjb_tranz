@@ -3,12 +3,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
+import PDFPreviewModal from './PDFPreviewModal';
 
 import { generateTransactionIds } from '@/lib/transactionUtils';
-import { 
-  X, 
-  ArrowRight, 
+import {
+  X,
+  ArrowRight,
   ArrowLeft,
   CurrencyDollar,
   User,
@@ -16,7 +16,8 @@ import {
   Phone,
   Globe,
   CheckCircle,
-  Clock
+  Clock,
+  Eye
 } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
@@ -51,7 +52,7 @@ interface CreateTransactionProps {
 }
 
 const CreateTransaction: React.FC<CreateTransactionProps> = ({ onClose, onComplete, exchangeRates }) => {
-  const [step, setStep] = useState<'type' | 'country' | 'details' | 'review' | 'complete'>('type');
+  const [step, setStep] = useState<'type' | 'country' | 'details' | 'review' | 'loading' | 'receiver' | 'complete'>('type');
   const [transactionType, setTransactionType] = useState<'send' | 'receive' | null>(null);
   const [selectedCountry, setSelectedCountry] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -63,6 +64,14 @@ const CreateTransaction: React.FC<CreateTransactionProps> = ({ onClose, onComple
     amount: '',
     phoneNumber: ''
   });
+
+  const [receiverFormData, setReceiverFormData] = useState({
+    fullName: '',
+    email: '',
+    phoneNumber: ''
+  });
+
+  const [showPDFPreview, setShowPDFPreview] = useState(false);
 
   // Get popular countries based on transaction history
   const getPopularCountries = () => {
@@ -127,11 +136,15 @@ const CreateTransaction: React.FC<CreateTransactionProps> = ({ onClose, onComple
       };
       
       setGeneratedTransaction(transaction);
-      onComplete(transaction);
-      setStep('complete');
+      setStep('loading');
       toast.success('Transaction created successfully!');
+
+      // Show loading animation for 2 seconds, then proceed to receiver info
+      setTimeout(() => {
+        setStep('receiver');
+      }, 2000);
       
-    } catch (error) {
+    } catch (_error) {
       toast.error('Failed to create transaction. Please try again.');
     } finally {
       setIsLoading(false);
@@ -418,14 +431,116 @@ const CreateTransaction: React.FC<CreateTransactionProps> = ({ onClose, onComple
     );
   };
 
+  const renderLoadingStep = () => (
+    <div className="space-y-6 text-center">
+      <div className="flex flex-col items-center">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-green-200 border-t-green-500 rounded-full animate-spin mb-4"></div>
+          <CheckCircle className="h-8 w-8 text-green-500 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" weight="duotone" />
+        </div>
+        <h3 className="text-xl font-semibold mb-2">Processing Transaction...</h3>
+        <p className="text-muted-foreground">Please wait while we secure your transaction</p>
+      </div>
+    </div>
+  );
+
+  const renderReceiverStep = () => {
+    const _selectedRate = exchangeRates.find(rate => rate.pair === selectedCountry);
+    const _countryName = getCountryName(selectedCountry);
+    const _countryFlag = getCountryFlag(selectedCountry);
+
+    return (
+      <div className="space-y-6">
+        <div className="text-center">
+          <h3 className="text-xl font-semibold mb-2">Receiver Information</h3>
+          <p className="text-muted-foreground">Enter the receiver's details to complete the transaction</p>
+        </div>
+
+        {/* Preview Button */}
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowPDFPreview(true)}
+            className="rounded-full p-2 hover:bg-gray-100 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="receiverFullName" className="flex items-center gap-2">
+              <User className="h-4 w-4" />
+              Receiver Full Name *
+            </Label>
+            <Input
+              id="receiverFullName"
+              value={receiverFormData.fullName}
+              onChange={(e) => setReceiverFormData(prev => ({ ...prev, fullName: e.target.value }))}
+              placeholder="Enter receiver's full name"
+              required
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="receiverEmail" className="flex items-center gap-2">
+              <Envelope className="h-4 w-4" />
+              Receiver Email (Optional)
+            </Label>
+            <Input
+              id="receiverEmail"
+              type="email"
+              value={receiverFormData.email}
+              onChange={(e) => setReceiverFormData(prev => ({ ...prev, email: e.target.value }))}
+              placeholder="Enter receiver's email address"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="receiverPhoneNumber" className="flex items-center gap-2">
+              <Phone className="h-4 w-4" />
+              Receiver Phone Number
+            </Label>
+            <Input
+              id="receiverPhoneNumber"
+              type="tel"
+              value={receiverFormData.phoneNumber}
+              onChange={(e) => setReceiverFormData(prev => ({ ...prev, phoneNumber: e.target.value }))}
+              placeholder="Enter receiver's phone number"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-between">
+          <Button variant="outline" onClick={() => setStep('review')}>
+            Back
+          </Button>
+          <Button
+            onClick={() => {
+              if (generatedTransaction) {
+                onComplete(generatedTransaction);
+                setStep('complete');
+              }
+            }}
+            disabled={!receiverFormData.fullName}
+            className="min-w-[120px]"
+          >
+            Complete Transaction
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   const renderCompleteStep = () => (
     <div className="space-y-6 text-center">
       <div className="flex flex-col items-center">
         <CheckCircle className="h-16 w-16 text-green-500 mb-4" weight="duotone" />
-        <h3 className="text-xl font-semibold mb-2">Transaction Created Successfully!</h3>
-        <p className="text-muted-foreground">Your transaction has been processed</p>
+        <h3 className="text-xl font-semibold mb-2">Transaction Completed Successfully!</h3>
+        <p className="text-muted-foreground">Your transaction has been processed and completed</p>
       </div>
-      
+
       {generatedTransaction && (
         <Card>
           <CardContent className="p-6">
@@ -440,7 +555,7 @@ const CreateTransaction: React.FC<CreateTransactionProps> = ({ onClose, onComple
                   <div className="font-mono text-xs">{generatedTransaction.formatId}</div>
                 </div>
               </div>
-              
+
               <div className="border-t pt-4">
                 <Button
                   variant="outline"
@@ -457,7 +572,7 @@ const CreateTransaction: React.FC<CreateTransactionProps> = ({ onClose, onComple
           </CardContent>
         </Card>
       )}
-      
+
       <div className="flex justify-center gap-3">
         <Button variant="outline" onClick={onClose}>
           Close
@@ -467,6 +582,7 @@ const CreateTransaction: React.FC<CreateTransactionProps> = ({ onClose, onComple
           setTransactionType(null);
           setSelectedCountry('');
           setFormData({ fullName: '', email: '', amount: '', phoneNumber: '' });
+          setReceiverFormData({ fullName: '', email: '', phoneNumber: '' });
           setGeneratedTransaction(null);
         }}>
           Create Another
@@ -476,57 +592,75 @@ const CreateTransaction: React.FC<CreateTransactionProps> = ({ onClose, onComple
   );
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <Card className="w-full max-w-2xl border-0 shadow-2xl">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-2xl">New Transaction</CardTitle>
-                <CardDescription>
-                  Create a new money transfer transaction
-                </CardDescription>
+    <>
+      <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <Card className="w-full max-w-2xl border-0 shadow-2xl">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-2xl">New Transaction</CardTitle>
+                  <CardDescription>
+                    Create a new money transfer transaction
+                  </CardDescription>
+                </div>
+                <Button variant="ghost" size="sm" onClick={onClose}>
+                  <X className="h-5 w-5" />
+                </Button>
               </div>
-              <Button variant="ghost" size="sm" onClick={onClose}>
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-            
-            {/* Progress indicator */}
-            <div className="flex justify-center mt-4">
-              <div className="flex items-center gap-2">
-                {['type', 'country', 'details', 'review', 'complete'].map((stepName, index) => {
-                  const currentIndex = ['type', 'country', 'details', 'review', 'complete'].indexOf(step);
-                  const isActive = index === currentIndex;
-                  const isCompleted = index < currentIndex;
-                  
-                  return (
-                    <div
-                      key={stepName}
-                      className={`w-3 h-3 rounded-full transition-colors ${
-                        isActive 
-                          ? 'bg-primary' 
-                          : isCompleted 
-                            ? 'bg-primary/60' 
-                            : 'bg-muted'
-                      }`}
-                    />
-                  );
-                })}
+
+              {/* Progress indicator */}
+              <div className="flex justify-center mt-4">
+                <div className="flex items-center gap-2">
+                  {['type', 'country', 'details', 'review', 'loading', 'receiver', 'complete'].map((stepName, index) => {
+                    const currentIndex = ['type', 'country', 'details', 'review', 'loading', 'receiver', 'complete'].indexOf(step);
+                    const isActive = index === currentIndex;
+                    const isCompleted = index < currentIndex;
+
+                    return (
+                      <div
+                        key={stepName}
+                        className={`w-3 h-3 rounded-full transition-colors ${
+                          isActive
+                            ? 'bg-primary'
+                            : isCompleted
+                              ? 'bg-primary/60'
+                              : 'bg-muted'
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          </CardHeader>
-          
-          <CardContent>
-            {step === 'type' && renderTransactionTypeStep()}
-            {step === 'country' && renderCountryStep()}
-            {step === 'details' && renderDetailsStep()}
-            {step === 'review' && renderReviewStep()}
-            {step === 'complete' && renderCompleteStep()}
-          </CardContent>
-        </Card>
+            </CardHeader>
+
+            <CardContent>
+              {step === 'type' && renderTransactionTypeStep()}
+              {step === 'country' && renderCountryStep()}
+              {step === 'details' && renderDetailsStep()}
+              {step === 'review' && renderReviewStep()}
+              {step === 'loading' && renderLoadingStep()}
+              {step === 'receiver' && renderReceiverStep()}
+              {step === 'complete' && renderCompleteStep()}
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
+
+      {/* PDF Preview Modal */}
+      {generatedTransaction && (
+        <PDFPreviewModal
+          isOpen={showPDFPreview}
+          onClose={() => setShowPDFPreview(false)}
+          transaction={{
+            ...generatedTransaction,
+            countryName: getCountryName(selectedCountry),
+            countryFlag: getCountryFlag(selectedCountry)
+          }}
+          isReceiver={step === 'receiver'}
+        />
+      )}
+    </>
   );
 };
 

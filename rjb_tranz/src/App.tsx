@@ -2311,20 +2311,15 @@ function App() {
         {/* Main Header */}
         <div className="flex h-16 items-center px-4 gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <button
-              onClick={() => {
-                hapticFeedback();
-                setShowSystemSettings(true);
-              }}
-              className="h-8 w-8 rounded-full flex-shrink-0 transition-transform duration-300 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-primary/30"
-              title="System Settings"
+            <div
+              className="h-8 w-8 rounded-full flex-shrink-0"
             >
-              <img 
-                src="https://i.ibb.co/6LY7bxR/rjb-logo.jpg" 
-                alt="RJB TRANZ Logo" 
+              <img
+                src="https://i.ibb.co/6LY7bxR/rjb-logo.jpg"
+                alt="RJB TRANZ Logo"
                 className="h-8 w-8 rounded-full"
               />
-            </button>
+            </div>
             <div className="min-w-0">
               <h1 className="text-lg font-bold text-foreground font-montserrat truncate font-dynamic-lg">RJB TRANZ</h1>
               <p className="text-xs text-muted-foreground font-montserrat truncate sm:hidden font-dynamic-xs">

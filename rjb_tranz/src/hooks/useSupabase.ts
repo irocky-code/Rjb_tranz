@@ -192,10 +192,10 @@ export const useSupabase = (options: UseSupabaseOptions = {}) => {
   };
 
   const systemConfig = {
-    get: async (userId: string) => {
+    get: async () => {
       setIsLoading(true);
       try {
-        return await SupabaseService.getSystemConfig(userId);
+        return await SupabaseService.getSystemConfig();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to get system config');
         return null;
@@ -203,10 +203,10 @@ export const useSupabase = (options: UseSupabaseOptions = {}) => {
         setIsLoading(false);
       }
     },
-    save: async (userId: string, config: any) => {
+    save: async (config: any) => {
       setIsLoading(true);
       try {
-        return await SupabaseService.saveSystemConfig(userId, config);
+        return await SupabaseService.saveSystemConfig(config);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to save system config');
         return null;

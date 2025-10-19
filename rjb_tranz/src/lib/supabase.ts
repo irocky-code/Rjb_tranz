@@ -155,12 +155,84 @@ export const supabaseOperations = {
   async upsertExchangeRate(rate: Omit<ExchangeRate, 'id' | 'created_at'>) {
     const { data, error } = await supabase
       .from('exchange_rates')
-      .upsert([rate], { 
+      .upsert([rate], {
         onConflict: 'from_currency,to_currency'
       })
       .select()
       .single();
-    
+
+    if (error) throw error;
+    return data;
+  },
+
+  async updateExchangeRates(rates: ExchangeRate[]) {
+    const results: ExchangeRate[] = [];
+    for (const rate of rates) {
+      try {
+        const result = await this.upsertExchangeRate({
+          ...rate,
+          id: undefined as any,
+          created_at: undefined as any
+        });
+        results.push(result);
+      } catch (error) {
+        console.error(`Failed to update rate ${rate.pair}:`, error);
+      }
+    }
+    return results;
+  },
+
+  async deleteTransaction(id: string) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    return data;
+  },
+
+  async updateClient(id: string, updates: Partial<Client>) {
+    const { data, error } = await supabase
+      .from('clients')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async updateInvoice(id: string, updates: Partial<Invoice>) {
+    const { data, error } = await supabase
+      .from('invoices')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async getSystemConfig() {
+    const { data, error } = await supabase
+      .from('system_config')
+      .select('*')
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows returned
+    return data;
+  },
+
+  async saveSystemConfig(config: any) {
+    const { data, error } = await supabase
+      .from('system_config')
+      .upsert([config], { onConflict: 'id' })
+      .select()
+      .single();
+
     if (error) throw error;
     return data;
   },
